@@ -34,8 +34,17 @@ jobs:
       - name: Install the project
         run: uv sync
 
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      # The plain "main.yaml=ubuntu:24.04" mapping does not pull; only the
+      # suite entries (pull = true) do. Fetch the image up front so the
+      # mapping works on a fresh runner regardless of execution order.
+      - name: Pull test image
+        run: docker pull ubuntu:24.04
+
       - name: Run tests
-        run: uv run pytest tests
+        run: uv run pytest -v
 
   build:
     name: Build distribution 📦
