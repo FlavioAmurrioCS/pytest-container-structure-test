@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import importlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -199,8 +199,15 @@ def _binary_path() -> str:
     configured = os.environ.get(BINARY_ENV_VAR)
     if configured:
         return configured
-    module = importlib.import_module("container_structure_test")
-    return cast("str", module.get_binary_path())
+    binary = shutil.which("container-structure-test")
+    if binary is None:
+        msg = (
+            "container-structure-test binary not found on PATH; install it "
+            "(https://github.com/GoogleContainerTools/container-structure-test#installation) "
+            f"or set {BINARY_ENV_VAR} to its location"
+        )
+        raise StructureTestRunError(msg)
+    return binary
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:

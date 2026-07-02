@@ -286,6 +286,17 @@ def test_missing_binary_fails_with_clear_message(
     result.stdout.fnmatch_lines(["*failed to run container-structure-test binary*"])
 
 
+def test_binary_not_on_path_fails_with_clear_message(
+    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    make_project(pytester, yaml_text=MINI_YAML)
+    monkeypatch.delenv(BINARY_ENV_VAR, raising=False)
+    monkeypatch.setenv("PATH", str(pytester.path))
+    result = pytester.runpytest()
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(["*not found on PATH*PYTEST_CONTAINER_STRUCTURE_TEST_BINARY*"])
+
+
 def test_image_expanding_to_empty_is_collection_error(
     pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -542,6 +553,8 @@ def test_legacy_ini_and_suites_coexist(
 
 
 def test_integration_with_docker(pytester: pytest.Pytester) -> None:
+    if shutil.which("container-structure-test") is None:
+        pytest.skip("container-structure-test binary not on PATH")
     docker = shutil.which("docker")
     if docker is None:
         pytest.skip("docker CLI not available")
