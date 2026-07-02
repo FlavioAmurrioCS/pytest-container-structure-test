@@ -30,7 +30,13 @@ test_app.py::test_healthcheck PASSED                         [100%]
 pip install pytest-container-structure-test
 ```
 
-The `container-structure-test` binary is bundled via the [container-structure-test](https://pypi.org/project/container-structure-test/) wheel — no separate install needed. A running Docker daemon is required to execute the tests (not to collect them).
+The plugin invokes the `container-structure-test` binary from your `PATH`. Any install route works:
+
+- [upstream releases / brew](https://github.com/GoogleContainerTools/container-structure-test#installation) (e.g. `brew install container-structure-test`)
+- `pip install container-structure-test` — the [PyPI wheel](https://pypi.org/project/container-structure-test/) that ships the binary as a console script in your environment
+- or point `PYTEST_CONTAINER_STRUCTURE_TEST_BINARY` at a specific binary
+
+A running Docker daemon is required to execute the tests (not to collect them).
 
 ## Usage
 
@@ -135,7 +141,7 @@ The simple `container_structure_tests` ini option keeps working and can be combi
 - Collection only parses the YAML — `pytest --collect-only` never touches Docker.
 - At run time, the binary is invoked **once per config × image × platform combination** and each collected test looks up its own result from that run's JSON report, so N tests in one config cost one image run per combination.
 - If the binary itself fails (Docker daemon down, image missing), every test in that config fails with the captured stderr.
-- Set `PYTEST_CONTAINER_STRUCTURE_TEST_BINARY` to use a different `container-structure-test` binary than the bundled one.
+- The binary is resolved from `PATH`; set `PYTEST_CONTAINER_STRUCTURE_TEST_BINARY` to use a specific `container-structure-test` binary instead.
 
 ## License
 
