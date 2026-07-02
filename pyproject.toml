@@ -1,0 +1,198 @@
+#:schema https://www.schemastore.org/pyproject.json
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pytest-container-structure-test"
+dynamic = ["version"]
+description = "Run container-structure-test from pytest!"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+keywords = []
+authors = [
+  { name = "Flavio Amurrio", email = "25621374+FlavioAmurrioCS@users.noreply.github.com" },
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Programming Language :: Python :: Implementation :: CPython",
+  "Programming Language :: Python :: Implementation :: PyPy",
+]
+dependencies = [
+  "container-structure-test>=1.19.0",
+]
+
+[project.optional-dependencies]
+
+[dependency-groups]
+dev = [
+  { include-group = "test" },
+  { include-group = "types" },
+]
+test = [
+  "pytest",
+  "pytest-cov",
+  "tomli ; python_version < '3.11'",
+]
+types = [
+  { include-group = "test" },
+  "mypy",
+  "typing-extensions",
+]
+type-checkers = [
+  { include-group = "types" },
+  "basedpyright",
+  "pyrefly",
+  "pyright[nodejs]",
+  "ty",
+  "zuban",
+]
+docs = [
+  "zensical",
+]
+
+[project.urls]
+Documentation = "https://github.com/FlavioAmurrioCS/pytest-container-structure-test#readme"
+Issues = "https://github.com/FlavioAmurrioCS/pytest-container-structure-test/issues"
+Source = "https://github.com/FlavioAmurrioCS/pytest-container-structure-test"
+
+[project.scripts]
+pytest-container-structure-test = "pytest_container_structure_test.__main__:main"
+
+###############################################################################
+# region: hatch
+###############################################################################
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.build.hooks.vcs]
+version-file = "src/pytest_container_structure_test/_version.py"
+
+[tool.hatch.envs.hatch-test]
+dependency-groups = [
+  "test",
+]
+
+[tool.hatch.envs.types]
+dependency-groups = [
+  "types",
+]
+
+[tool.hatch.envs.types.scripts]
+check = "mypy --install-types --non-interactive {args:src/pytest_container_structure_test tests}"
+
+[[tool.hatch.envs.hatch-test.matrix]]
+python = [
+  "3.10",
+  "3.11",
+  "3.12",
+  "3.13",
+  "3.14",
+]
+###############################################################################
+# endregion: hatch
+###############################################################################
+
+###############################################################################
+# region: coverage
+###############################################################################
+[tool.coverage.run]
+source_pkgs = ["pytest_container_structure_test", "tests"]
+branch = true
+parallel = true
+omit = [
+  "**/_version.py",
+  "**/__main__.py",
+]
+
+[tool.coverage.paths]
+pytest_container_structure_test = ["src/pytest_container_structure_test"]
+tests = ["tests"]
+
+[tool.coverage.report]
+exclude_lines = [
+  "no cov",
+  "if __name__ == .__main__.:",
+  "if TYPE_CHECKING:",
+]
+###############################################################################
+# endregion: coverage
+###############################################################################
+
+###############################################################################
+# region: ruff
+###############################################################################
+[tool.hatch.envs.hatch-static-analysis]
+config-path = "none"
+
+[tool.ruff.lint.isort]
+force-single-line = true
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = [
+  "ALL",
+]
+ignore = [
+  "COM812",  # missing-trailing-comma
+  "D",       # pydocstyle
+  "ERA001",  # commented-out-code
+  "EXE003",  # shebang-missing-python
+  "ISC001",  # single-line-implicit-string-concatenation
+  "PTH",     # flake8-use-pathlib
+  "T20",     # flake8-print
+  "PLC0415", # import-outside-top-level
+]
+
+[tool.ruff.format]
+docstring-code-format = true
+docstring-code-line-length = 100
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = [
+  "S101",
+]
+###############################################################################
+# endregion: ruff
+###############################################################################
+
+###############################################################################
+# region: type-checkers
+###############################################################################
+[tool.mypy]
+# https://mypy.readthedocs.io/en/stable/config_file.html
+strict = true
+
+[tool.zuban]
+# https://docs.zubanls.com/en/latest/usage.html#configuration
+mode = "default"
+strict = true
+
+[tool.pyright]
+# https://github.com/microsoft/pyright/blob/main/docs/configuration.md
+typeCheckingMode = "strict"
+reportUnusedImport = false
+
+# [tool.basedpyright]
+# # https://docs.basedpyright.com/latest/configuration/config-files/
+# typeCheckingMode = "all"
+
+[tool.pyrefly]
+# https://pyrefly.org/en/docs/configuration/
+preset = "strict"
+
+[tool.ty.rules]
+# https://docs.astral.sh/ty/reference/configuration/
+all = "error"
+###############################################################################
+# endregion: type-checkers
+###############################################################################
