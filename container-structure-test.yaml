@@ -1,0 +1,12 @@
+# yaml-language-server: $schema=https://www.schemastore.org/container-structure-test.json
+---
+schemaVersion: 2.0.0
+commandTests:
+  - name: "Check bash"
+    command: "which"
+    args: ["bash"]
+    expectedOutput: ["/bin/bash"]
+  - name: "Check env"
+    command: "which"
+    args: ["env"]
+    expectedOutput: ["/usr/bin/env"]

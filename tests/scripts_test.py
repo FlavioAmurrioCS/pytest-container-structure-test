@@ -3,7 +3,6 @@ from __future__ import annotations
 import logging
 import subprocess
 import sys
-from typing import TYPE_CHECKING
 
 import pytest
 
@@ -13,15 +12,13 @@ else:
     import tomli as tomllib  # type: ignore[import-not-found,unused-ignore]
 
 
-if TYPE_CHECKING:
-    from collections.abc import Generator
 logger = logging.getLogger(__name__)
 
 
-def entrypoints() -> Generator[tuple[str, str], None, None]:
+def entrypoints() -> list[tuple[str, str]]:
     with open("pyproject.toml", "rb") as f:
         pyproject = tomllib.load(f)
-    yield from pyproject["project"]["scripts"].items()
+    return list(pyproject["project"]["scripts"].items())
 
 
 @pytest.mark.parametrize("pair", entrypoints())
