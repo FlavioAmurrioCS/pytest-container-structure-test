@@ -552,6 +552,111 @@ def test_legacy_ini_and_suites_coexist(
     assert sorted(images) == ["fake/legacy:1", "fake/suite:1"]
 
 
+def test_cst_pull_flag_forces_pull(
+    pytester: pytest.Pytester,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_binary: Path,
+) -> None:
+    make_project(pytester, yaml_text=MINI_YAML)
+    set_report(pytester, monkeypatch, MINI_REPORT)
+    result = pytester.runpytest("--cst-pull")
+    result.assert_outcomes(passed=1)
+    (args,) = invocations(fake_binary)
+    assert "--pull" in args
+
+
+def test_cst_no_pull_flag_strips_pull(
+    pytester: pytest.Pytester,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_binary: Path,
+) -> None:
+    pytester.makepyprojecttoml(
+        "[[tool.pytest-container-structure-test.suites]]\n"
+        'config = "structure.yaml"\n'
+        'image = "fake/image:latest"\n'
+        "pull = true\n"
+    )
+    pytester.makefile(".yaml", structure=MINI_YAML)
+    set_report(pytester, monkeypatch, MINI_REPORT)
+    result = pytester.runpytest("--cst-no-pull")
+    result.assert_outcomes(passed=1)
+    (args,) = invocations(fake_binary)
+    assert "--pull" not in args
+
+
+def test_cst_pull_flags_are_mutually_exclusive(pytester: pytest.Pytester) -> None:
+    make_project(pytester, yaml_text=MINI_YAML)
+    result = pytester.runpytest("--cst-pull", "--cst-no-pull")
+    assert result.ret == pytest.ExitCode.USAGE_ERROR
+    result.stderr.fnmatch_lines(["*--cst-pull and --cst-no-pull are mutually exclusive*"])
+
+
+def test_cst_platform_flag_collapses_matrix(
+    pytester: pytest.Pytester,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_binary: Path,
+) -> None:
+    pytester.makepyprojecttoml(
+        "[[tool.pytest-container-structure-test.suites]]\n"
+        'config = "structure.yaml"\n'
+        'image = "fake/image:latest"\n'
+        'platforms = ["linux/amd64", "linux/arm64"]\n'
+    )
+    pytester.makefile(".yaml", structure=MINI_YAML)
+    set_report(pytester, monkeypatch, MINI_REPORT)
+    result = pytester.runpytest("--cst-platform", "linux/amd64", "-v")
+    result.assert_outcomes(passed=1)
+    result.stdout.fnmatch_lines(["*command:smoke PASSED*"])
+    (args,) = invocations(fake_binary)
+    assert arg_value(args, "--platform") == "linux/amd64"
+
+
+def test_cst_platform_flag_injects_into_platformless_mapping(
+    pytester: pytest.Pytester,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_binary: Path,
+) -> None:
+    make_project(pytester, yaml_text=MINI_YAML)
+    set_report(pytester, monkeypatch, MINI_REPORT)
+    result = pytester.runpytest("--cst-platform", "linux/arm64")
+    result.assert_outcomes(passed=1)
+    (args,) = invocations(fake_binary)
+    assert arg_value(args, "--platform") == "linux/arm64"
+
+
+def test_cst_platform_flag_repeatable(
+    pytester: pytest.Pytester,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_binary: Path,
+) -> None:
+    make_project(pytester, yaml_text=MINI_YAML)
+    set_report(pytester, monkeypatch, MINI_REPORT)
+    result = pytester.runpytest(
+        "--cst-platform", "linux/amd64", "--cst-platform", "linux/arm64", "-v"
+    )
+    result.assert_outcomes(passed=2)
+    result.stdout.fnmatch_lines(
+        [
+            "*command:smoke?linux/amd64? PASSED*",
+            "*command:smoke?linux/arm64? PASSED*",
+        ]
+    )
+    platforms = [arg_value(args, "--platform") for args in invocations(fake_binary)]
+    assert sorted(platforms) == ["linux/amd64", "linux/arm64"]
+
+
+@pytest.mark.usefixtures("fake_binary")
+def test_debug_logging_shows_command(
+    pytester: pytest.Pytester,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    make_project(pytester, yaml_text=MINI_YAML)
+    set_report(pytester, monkeypatch, MINI_REPORT)
+    result = pytester.runpytest("--log-cli-level=DEBUG")
+    result.assert_outcomes(passed=1)
+    result.stdout.fnmatch_lines(["*running: *test --image fake/image:latest --config *"])
+
+
 def test_integration_with_docker(pytester: pytest.Pytester) -> None:
     if shutil.which("container-structure-test") is None:
         pytest.skip("container-structure-test binary not on PATH")
