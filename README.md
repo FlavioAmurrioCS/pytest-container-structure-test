@@ -136,6 +136,23 @@ Unknown keys are rejected with a clear error (typo protection). `extra_args` may
 
 The simple `container_structure_tests` ini option keeps working and can be combined with suites; each of its entries is just a suite of one config, one image, and default flags.
 
+### Pipeline overrides
+
+The config declares the full intended matrix; command-line flags adjust it per invocation, so the same config works locally and in CI:
+
+```console
+# arch-limited pipeline runner with a fresh image cache:
+pytest --cst-platform=linux/amd64 --cst-pull
+
+# local run right after `docker build` — don't let a registry pull clobber the local tag:
+pytest --cst-no-pull
+```
+
+- `--cst-platform PLATFORM` (repeatable) overrides the platform of **every** configured run, collapsing any declared platform matrix to the given value(s); runs that declared no platform get it injected.
+- `--cst-pull` / `--cst-no-pull` force pulling on or off for every run (mutually exclusive; default is whatever each suite configured).
+
+Flags apply to all configured runs. A repo can bake defaults with `addopts` in `[tool.pytest.ini_options]`. To see the exact binary invocations for debugging, run with `--log-cli-level=DEBUG`.
+
 ## How it works
 
 - Collection only parses the YAML — `pytest --collect-only` never touches Docker.
