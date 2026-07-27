@@ -192,6 +192,35 @@ def test_env_var_expanded_when_set(
     assert arg_value(args, "--image") == "fake/image:1.2.3"
 
 
+def test_conftest_can_set_env_vars_for_image_expansion(
+    pytester: pytest.Pytester,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_binary: Path,
+) -> None:
+    """The documented pattern: compute an image in conftest.py, export it, reference it.
+
+    Images are expanded while collecting the config file, which is after every conftest
+    has been imported, so a conftest may build the value from anything it can read.
+    """
+    # monkeypatch.delenv also undoes what the in-process sub-run's conftest sets.
+    monkeypatch.delenv("CST_APP_IMAGE", raising=False)
+    monkeypatch.setenv("CST_REGISTRY", "reg.example.com/")
+    pytester.makefile(".txt", VERSION="1.2.3\n")
+    pytester.makeconftest(
+        "import os\n"
+        "from pathlib import Path\n"
+        "version = Path(__file__).parent.joinpath('VERSION.txt').read_text().strip()\n"
+        "registry = os.environ['CST_REGISTRY'].rstrip('/')\n"
+        "os.environ['CST_APP_IMAGE'] = f'{registry}/app:{version}'\n"
+    )
+    make_project(pytester, image="${CST_APP_IMAGE}")
+    set_report(pytester, monkeypatch, REPORT_ALL_PASS)
+    result = pytester.runpytest()
+    result.assert_outcomes(passed=3)
+    (args,) = invocations(fake_binary)
+    assert arg_value(args, "--image") == "reg.example.com/app:1.2.3"
+
+
 def test_unset_env_var_without_default_is_collection_error(
     pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -550,6 +579,111 @@ def test_legacy_ini_and_suites_coexist(
     run.assert_outcomes(passed=2)
     images = [arg_value(args, "--image") for args in invocations(fake_binary)]
     assert sorted(images) == ["fake/legacy:1", "fake/suite:1"]
+
+
+def test_cst_pull_flag_forces_pull(
+    pytester: pytest.Pytester,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_binary: Path,
+) -> None:
+    make_project(pytester, yaml_text=MINI_YAML)
+    set_report(pytester, monkeypatch, MINI_REPORT)
+    result = pytester.runpytest("--cst-pull")
+    result.assert_outcomes(passed=1)
+    (args,) = invocations(fake_binary)
+    assert "--pull" in args
+
+
+def test_cst_no_pull_flag_strips_pull(
+    pytester: pytest.Pytester,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_binary: Path,
+) -> None:
+    pytester.makepyprojecttoml(
+        "[[tool.pytest-container-structure-test.suites]]\n"
+        'config = "structure.yaml"\n'
+        'image = "fake/image:latest"\n'
+        "pull = true\n"
+    )
+    pytester.makefile(".yaml", structure=MINI_YAML)
+    set_report(pytester, monkeypatch, MINI_REPORT)
+    result = pytester.runpytest("--cst-no-pull")
+    result.assert_outcomes(passed=1)
+    (args,) = invocations(fake_binary)
+    assert "--pull" not in args
+
+
+def test_cst_pull_flags_are_mutually_exclusive(pytester: pytest.Pytester) -> None:
+    make_project(pytester, yaml_text=MINI_YAML)
+    result = pytester.runpytest("--cst-pull", "--cst-no-pull")
+    assert result.ret == pytest.ExitCode.USAGE_ERROR
+    result.stderr.fnmatch_lines(["*--cst-pull and --cst-no-pull are mutually exclusive*"])
+
+
+def test_cst_platform_flag_collapses_matrix(
+    pytester: pytest.Pytester,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_binary: Path,
+) -> None:
+    pytester.makepyprojecttoml(
+        "[[tool.pytest-container-structure-test.suites]]\n"
+        'config = "structure.yaml"\n'
+        'image = "fake/image:latest"\n'
+        'platforms = ["linux/amd64", "linux/arm64"]\n'
+    )
+    pytester.makefile(".yaml", structure=MINI_YAML)
+    set_report(pytester, monkeypatch, MINI_REPORT)
+    result = pytester.runpytest("--cst-platform", "linux/amd64", "-v")
+    result.assert_outcomes(passed=1)
+    result.stdout.fnmatch_lines(["*command:smoke PASSED*"])
+    (args,) = invocations(fake_binary)
+    assert arg_value(args, "--platform") == "linux/amd64"
+
+
+def test_cst_platform_flag_injects_into_platformless_mapping(
+    pytester: pytest.Pytester,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_binary: Path,
+) -> None:
+    make_project(pytester, yaml_text=MINI_YAML)
+    set_report(pytester, monkeypatch, MINI_REPORT)
+    result = pytester.runpytest("--cst-platform", "linux/arm64")
+    result.assert_outcomes(passed=1)
+    (args,) = invocations(fake_binary)
+    assert arg_value(args, "--platform") == "linux/arm64"
+
+
+def test_cst_platform_flag_repeatable(
+    pytester: pytest.Pytester,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_binary: Path,
+) -> None:
+    make_project(pytester, yaml_text=MINI_YAML)
+    set_report(pytester, monkeypatch, MINI_REPORT)
+    result = pytester.runpytest(
+        "--cst-platform", "linux/amd64", "--cst-platform", "linux/arm64", "-v"
+    )
+    result.assert_outcomes(passed=2)
+    result.stdout.fnmatch_lines(
+        [
+            "*command:smoke?linux/amd64? PASSED*",
+            "*command:smoke?linux/arm64? PASSED*",
+        ]
+    )
+    platforms = [arg_value(args, "--platform") for args in invocations(fake_binary)]
+    assert sorted(platforms) == ["linux/amd64", "linux/arm64"]
+
+
+@pytest.mark.usefixtures("fake_binary")
+def test_debug_logging_shows_command(
+    pytester: pytest.Pytester,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    make_project(pytester, yaml_text=MINI_YAML)
+    set_report(pytester, monkeypatch, MINI_REPORT)
+    result = pytester.runpytest("--log-cli-level=DEBUG")
+    result.assert_outcomes(passed=1)
+    result.stdout.fnmatch_lines(["*running: *test --image fake/image:latest --config *"])
 
 
 def test_integration_with_docker(pytester: pytest.Pytester) -> None:

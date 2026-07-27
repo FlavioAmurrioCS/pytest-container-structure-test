@@ -21,6 +21,7 @@ test_app.py::test_healthcheck PASSED                         [100%]
 - [Installation](#installation)
 - [Usage](#usage)
 - [Test matrix: multiple images, configs, and platforms](#test-matrix-multiple-images-configs-and-platforms)
+- [Computing image values in Python](#computing-image-values-in-python)
 - [How it works](#how-it-works)
 - [License](#license)
 
@@ -58,6 +59,8 @@ The image value supports environment-variable expansion, so the image name or ta
 
 - `$VAR` or `${VAR}` — expands from the environment; referencing an unset variable is a collection error.
 - `${VAR:-default}` — uses `default` when `VAR` is unset or empty, so runs work locally without exports.
+
+Values are expanded when the config file is collected, so a `conftest.py` can compute them first — see [Computing image values in Python](#computing-image-values-in-python).
 
 Write your config files exactly as `container-structure-test` expects — nothing custom:
 
@@ -136,9 +139,64 @@ Unknown keys are rejected with a clear error (typo protection). `extra_args` may
 
 The simple `container_structure_tests` ini option keeps working and can be combined with suites; each of its entries is just a suite of one config, one image, and default flags.
 
+### Pipeline overrides
+
+The config declares the full intended matrix; command-line flags adjust it per invocation, so the same config works locally and in CI:
+
+```console
+# arch-limited pipeline runner with a fresh image cache:
+pytest --cst-platform=linux/amd64 --cst-pull
+
+# local run right after `docker build` — don't let a registry pull clobber the local tag:
+pytest --cst-no-pull
+```
+
+- `--cst-platform PLATFORM` (repeatable) overrides the platform of **every** configured run, collapsing any declared platform matrix to the given value(s); runs that declared no platform get it injected.
+- `--cst-pull` / `--cst-no-pull` force pulling on or off for every run (mutually exclusive; default is whatever each suite configured).
+
+Flags apply to all configured runs. A repo can bake defaults with `addopts` in `[tool.pytest.ini_options]`. To see the exact binary invocations for debugging, run with `--log-cli-level=DEBUG`.
+
+## Computing image values in Python
+
+Sometimes the image can't be written as a literal or a plain `${VAR}` — the digest lives in a build-output file, the tag is a registry env var joined to a `VERSION` file, or the value has to be pulled out of some JSON. Compute it in a `conftest.py`, export it to the environment, and reference it like any other variable:
+
+```python
+# conftest.py  (at the pytest rootdir)
+import json
+import os
+from pathlib import Path
+
+_root = Path(__file__).parent
+_digest = json.loads(_root.joinpath("build-meta.json").read_text())["digest"]
+os.environ["APP_IMAGE"] = f"{os.environ['CI_REGISTRY'].rstrip('/')}/app@{_digest}"
+```
+
+```toml
+# pyproject.toml
+[[tool.pytest-container-structure-test.suites]]
+config    = "tests/structure/app.yaml"
+image     = "${APP_IMAGE}"
+platforms = ["linux/amd64", "linux/arm64"]
+```
+
+The same works with the ini option: `container_structure_tests = ["tests/structure/app.yaml=${APP_IMAGE}"]`.
+
+This works because the plugin resolves image strings while it collects each config file — after every conftest has been imported and after all `pytest_configure` hooks have run. Module-level code and a `pytest_configure` in the same conftest are both fine.
+
+> [!IMPORTANT]
+> The `conftest.py` must be one pytest loads before collection starts: the rootdir `conftest.py`, one on the path to the arguments you pass on the command line, or one inside a `test*` directory next to them. A `conftest.py` buried deeper in the tree is imported lazily *during* collection, which may be too late. `--noconftest` skips them entirely.
+
+Limits worth knowing:
+
+- Every value round-trips through the environment as a string.
+- The *shape* of the matrix stays static in TOML. Each image can be dynamic, but you can't generate a variable-length list of them — for N images, declare N placeholders: `images = ["${IMG_A}", "${IMG_B}"]`.
+- Referencing an unset variable is a collection error; use `${VAR:-default}` for a fallback.
+- Config *paths* are never expanded — only `image`, `metadata`, and `extra_args`.
+
 ## How it works
 
 - Collection only parses the YAML — `pytest --collect-only` never touches Docker.
+- Environment variables in `image`, `metadata`, and `extra_args` are expanded when the config file is collected — after conftest files load — so a `conftest.py` can set them.
 - At run time, the binary is invoked **once per config × image × platform combination** and each collected test looks up its own result from that run's JSON report, so N tests in one config cost one image run per combination.
 - If the binary itself fails (Docker daemon down, image missing), every test in that config fails with the captured stderr.
 - The binary is resolved from `PATH`; set `PYTEST_CONTAINER_STRUCTURE_TEST_BINARY` to use a specific `container-structure-test` binary instead.

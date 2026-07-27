@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
 import tempfile
 from dataclasses import dataclass
+from dataclasses import replace
 from typing import TYPE_CHECKING
 from typing import Any
 from typing import cast
@@ -32,6 +35,8 @@ if TYPE_CHECKING:
 INI_OPTION = "container_structure_tests"
 TOOL_TABLE = "pytest-container-structure-test"
 BINARY_ENV_VAR = "PYTEST_CONTAINER_STRUCTURE_TEST_BINARY"
+
+logger = logging.getLogger(__name__)
 
 _SECTIONS: tuple[tuple[str, str, str], ...] = (
     ("commandTests", "Command Test", "command"),
@@ -223,6 +228,27 @@ def pytest_addoption(parser: pytest.Parser) -> None:
             f"[[tool.{TOOL_TABLE}.suites]] table in pyproject.toml instead."
         ),
     )
+    group = parser.getgroup("container-structure-test")
+    group.addoption(
+        "--cst-platform",
+        action="append",
+        default=None,
+        metavar="PLATFORM",
+        help=(
+            "override the platform of every configured container-structure-test run "
+            "(repeatable); collapses any configured platform matrix to the given value(s)"
+        ),
+    )
+    group.addoption(
+        "--cst-pull",
+        action="store_true",
+        help="force a pull of the image before every container-structure-test run",
+    )
+    group.addoption(
+        "--cst-no-pull",
+        action="store_true",
+        help="never pull images, even for runs configured with pull = true",
+    )
 
 
 def _suite_error(index: int, message: str) -> pytest.UsageError:
@@ -366,12 +392,29 @@ def _legacy_specs(config: pytest.Config) -> list[RunSpec]:
     return specs
 
 
+def _apply_cli_overrides(config: pytest.Config, specs: list[RunSpec]) -> list[RunSpec]:
+    platforms = cast("list[str] | None", config.getoption("--cst-platform"))
+    pull_on = cast("bool", config.getoption("--cst-pull"))
+    pull_off = cast("bool", config.getoption("--cst-no-pull"))
+    if pull_on and pull_off:
+        msg = "--cst-pull and --cst-no-pull are mutually exclusive"
+        raise pytest.UsageError(msg)
+    overridden: list[RunSpec] = []
+    for spec in specs:
+        variants = [spec] if platforms is None else [replace(spec, platform=p) for p in platforms]
+        if pull_on or pull_off:
+            variants = [replace(variant, pull=pull_on) for variant in variants]
+        overridden.extend(variants)
+    return overridden
+
+
 def _config_mapping(config: pytest.Config) -> dict[Path, list[RunSpec]]:
     cached = config.stash.get(_mapping_key, None)
     if cached is not None:
         return cached
     mapping: dict[Path, list[RunSpec]] = {}
-    for spec in _legacy_specs(config) + _pyproject_suite_specs(config):
+    specs = _apply_cli_overrides(config, _legacy_specs(config) + _pyproject_suite_specs(config))
+    for spec in specs:
         bucket: list[RunSpec] | None = mapping.get(spec.config_path)
         if bucket is None:
             bucket = []
@@ -574,6 +617,7 @@ class ContainerStructureTestFile(pytest.File):
         with tempfile.TemporaryDirectory() as tmpdir:
             report_path = os.path.join(tmpdir, "report.json")
             command = self._build_command(run, binary, report_path)
+            logger.debug("running: %s", shlex.join(command))
             try:
                 process = subprocess.run(  # noqa: S603
                     command, capture_output=True, text=True, check=False
@@ -581,6 +625,7 @@ class ContainerStructureTestFile(pytest.File):
             except OSError as exc:
                 msg = f"failed to run container-structure-test binary {binary!r}: {exc}"
                 raise StructureTestRunError(msg) from exc
+            logger.debug("container-structure-test exited with %s", process.returncode)
             report_text: str | None = None
             try:
                 with open(report_path, encoding="utf-8") as file:
