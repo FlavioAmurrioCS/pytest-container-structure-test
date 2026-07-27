@@ -42,7 +42,7 @@ jobs:
           container-structure-test version
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
 
       # The plain "main.yaml=ubuntu:24.04" mapping does not pull; only the
       # suite entries (pull = true) do. Fetch the image up front so the
