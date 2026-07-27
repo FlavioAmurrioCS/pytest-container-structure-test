@@ -192,6 +192,35 @@ def test_env_var_expanded_when_set(
     assert arg_value(args, "--image") == "fake/image:1.2.3"
 
 
+def test_conftest_can_set_env_vars_for_image_expansion(
+    pytester: pytest.Pytester,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_binary: Path,
+) -> None:
+    """The documented pattern: compute an image in conftest.py, export it, reference it.
+
+    Images are expanded while collecting the config file, which is after every conftest
+    has been imported, so a conftest may build the value from anything it can read.
+    """
+    # monkeypatch.delenv also undoes what the in-process sub-run's conftest sets.
+    monkeypatch.delenv("CST_APP_IMAGE", raising=False)
+    monkeypatch.setenv("CST_REGISTRY", "reg.example.com/")
+    pytester.makefile(".txt", VERSION="1.2.3\n")
+    pytester.makeconftest(
+        "import os\n"
+        "from pathlib import Path\n"
+        "version = Path(__file__).parent.joinpath('VERSION.txt').read_text().strip()\n"
+        "registry = os.environ['CST_REGISTRY'].rstrip('/')\n"
+        "os.environ['CST_APP_IMAGE'] = f'{registry}/app:{version}'\n"
+    )
+    make_project(pytester, image="${CST_APP_IMAGE}")
+    set_report(pytester, monkeypatch, REPORT_ALL_PASS)
+    result = pytester.runpytest()
+    result.assert_outcomes(passed=3)
+    (args,) = invocations(fake_binary)
+    assert arg_value(args, "--image") == "reg.example.com/app:1.2.3"
+
+
 def test_unset_env_var_without_default_is_collection_error(
     pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
 ) -> None:

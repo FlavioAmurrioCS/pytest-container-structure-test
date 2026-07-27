@@ -43,6 +43,7 @@ test = [
   "pytest",
   "pytest-cov",
   "tomli ; python_version < '3.11'",
+  "container-structure-test>=1.19.1",
 ]
 types = [
   { include-group = "test" },
